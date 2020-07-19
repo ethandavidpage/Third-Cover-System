@@ -15,7 +15,7 @@ AWeapon::AWeapon()
 	PrimaryActorTick.bCanEverTick = true;
 
 	//Create skeletal mesh
-	MeshComponent = CreateDefaultSubobject<USkeletalMeshComponent>("WeaponMesh");
+	MeshComponent = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("WeaponMesh"));
 	
 	//Set to root
 	SetRootComponent(MeshComponent);

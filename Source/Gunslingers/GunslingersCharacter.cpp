@@ -12,6 +12,7 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/WorldSettings.h"
 #include "GameFramework/Character.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Kismet/KismetMathLibrary.h" 
 #include "Kismet/KismetSystemLibrary.h"
 #include "Kismet/GameplayStatics.h"
@@ -55,14 +56,15 @@ AGunslingersCharacter::AGunslingersCharacter()
 	FollowCamera->bUsePawnControlRotation = false; // Camera does not rotate relative to arm
 
 	//Probe for when in cover and for going to cover
-	CollisionProbe = CreateDefaultSubobject<UBoxComponent>("CollisionProbe");
-	CollisionProbe->SetBoxExtent(FVector(150.f, 2.f, 2.f));
+	CollisionProbe = CreateDefaultSubobject<UBoxComponent>(TEXT("CollisionProbe"));
+	CollisionProbe->SetBoxExtent(FVector(1000.f, 2.f, 2.f));
 
 	//Probe for when crouching outside of cover
-	OutOfCoverCollisionProbe = CreateDefaultSubobject<UBoxComponent>("OutOfCoverProbe");
+	OutOfCoverCollisionProbe = CreateDefaultSubobject<UBoxComponent>(TEXT("OutOfCoverProbe"));
 	CollisionProbe->SetBoxExtent(FVector(80.f, 2.f, 2.f));
 
-
+	//Create skeletal mesh for the ghost player
+	GhostPlayer = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("GhostPlayer"));	
 
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named MyCharacter (to avoid direct content references in C++)
@@ -122,32 +124,69 @@ void AGunslingersCharacter::SetupPlayerInputComponent(class UInputComponent* Pla
 void AGunslingersCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+	//Set to invisible at start
 
+	GhostPlayer->SetVisibility(false);
 }
 
 //Sets player to be in cover and moves them to it
 void AGunslingersCharacter::SetInCover()
 {
 	IsInCover = true;
+	SetGhostVisibility(false, nullptr);
 	UAIBlueprintHelperLibrary::SimpleMoveToActor(GetController(), CurrentCover);	
 	Crouch();
 	IsCrouching = true;
-	GetCharacterMovement()->MaxWalkSpeed = 300.f;
+	GetCharacterMovement()->MaxWalkSpeed = 300.f;	
+
 }
 
 
 void AGunslingersCharacter::Cover()
 {
-	//UE_LOG(LogTemp, Warning, TEXT("Cover pressed"));
+	//Get best cover
+	AActor* potentialCover = GetBestCover();
+	//If there is no good cover then set not in cover
+	if (potentialCover == nullptr)
+	{
+		CurrentCover = nullptr;
+		IsInCover = false;
+	}
+	//If there is a good cover set that to current cover
+	else
+	{
+		CurrentCover = potentialCover;
+		SetInCover();
+	}
+}
+
+void AGunslingersCharacter::SetGhostVisibility(bool input, AActor* coverForGhost)
+{
+	if (input && coverForGhost != nullptr && IsDead != true)
+	{
+		GhostPlayer->SetWorldLocation(FVector(coverForGhost->GetActorLocation().X, coverForGhost->GetActorLocation().Y, coverForGhost->GetActorLocation().Z - 50.f));
+		GhostPlayer->SetWorldRotation(coverForGhost->GetActorRotation());
+		GhostPlayer->AddWorldRotation(FRotator(0.f, -90.f, 0.f));
+		GhostPlayer->SetVisibility(true);
+	}
+	else
+	{
+		GhostPlayer->SetVisibility(false);
+	}
+
+}
+
+AActor * AGunslingersCharacter::GetBestCover()
+{
 	//Get all cover actors overlapping the probe
 	TArray<AActor*> CoverObjects;
+	AActor* CoverToReturn = nullptr;
 	CollisionProbe->GetOverlappingActors(CoverObjects, ACover::StaticClass());
 
 	//If there are no cover objects it means the player is not looking at their own or a new cover, so must leave cover.
 	if (CoverObjects.Num() == 0)
 	{
-		CurrentCover = nullptr;
-		IsInCover = false;
+		return nullptr;
 	}
 	//If there is a current cover
 	else if (IsInCover)
@@ -160,7 +199,7 @@ void AGunslingersCharacter::Cover()
 			{
 				CoverObjects.Remove(CurrentCover);
 			}
-			
+
 			int closestCover = 0;
 
 			//If after the current cover is removed or not removed there is still 2 potential covers there distances need to be checked; otherwise there was only one valid cover and our own in which case there is no competition
@@ -169,8 +208,7 @@ void AGunslingersCharacter::Cover()
 				closestCover = CalculateClosestCover(CoverObjects);
 			}
 
-			CurrentCover = CoverObjects[closestCover];
-			SetInCover();
+			return CoverObjects[closestCover];
 		}
 		//Else there is only one cover being looked at which is either our own or a new one
 		else
@@ -178,14 +216,12 @@ void AGunslingersCharacter::Cover()
 			//If the current cover is still equal to the potential cover, it means the player is only looking at their own cover and wants to exit 
 			if (CurrentCover == CoverObjects[0])
 			{
-				CurrentCover = nullptr;
-				IsInCover = false;
+				return nullptr;
 			}
 			//Else the potential cover is new, and the player should move to it
 			else
 			{
-				CurrentCover = CoverObjects[0];						
-				SetInCover();
+				return CoverObjects[0];
 			}
 		}
 	}
@@ -198,11 +234,11 @@ void AGunslingersCharacter::Cover()
 		{
 			closestCover = CalculateClosestCover(CoverObjects);
 		}
-		CurrentCover = CoverObjects[closestCover];	
-		SetInCover();
+		return CoverObjects[closestCover];
 	}
-	
 
+	//If there is some problem return null
+	return nullptr;
 }
 
 void AGunslingersCharacter::Aim()
@@ -401,6 +437,17 @@ FVector AGunslingersCharacter::GetPawnViewLocation() const
 void AGunslingersCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+
+	AActor* ghostCover = GetBestCover();
+
+	if (ghostCover == nullptr)
+	{
+		SetGhostVisibility(false, nullptr);
+	}
+	else
+	{
+		SetGhostVisibility(true, ghostCover);
+	}
 
 	//Slow mo either drains or regens over time
 	if (IsSlowMo)

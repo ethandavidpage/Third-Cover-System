@@ -87,6 +87,9 @@ protected:
 	class UBoxComponent* OutOfCoverCollisionProbe;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Cover)
+	class USkeletalMeshComponent* GhostPlayer;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Cover)
 	AActor* CurrentCover;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Weapon)
@@ -119,8 +122,14 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = SlowMo)
 	float SlowMoAmount = 3.f;
 
-	UFUNCTION(BlueprintCallable, Category = "Weapon")
+	UFUNCTION(BlueprintCallable, Category = Cover)
 	void Cover();	
+
+	UFUNCTION(BlueprintCallable, Category = Cover)
+	void SetGhostVisibility(bool input, AActor* coverForGhost);
+
+	UFUNCTION(BlueprintCallable, Category = Cover)
+	AActor* GetBestCover();
 
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
 	void Aim();
